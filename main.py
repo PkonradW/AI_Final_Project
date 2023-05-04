@@ -1,37 +1,48 @@
-# import pygame
-import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib import colors
-import pandas
-import numpy
 import random
-
 import robot
-from robot import Robot
 import copy
 import imageio
-
+# TODO save pic of last frame
 ENV_WIDTH = 50
 ENV_HEIGHT = 50
-NUM_ROBOTS = 4
-NUM_CONFIGS = 150
+NUM_ROBOTS = 5
+NUM_CONFIGS = 50
+BASE_STATION = (23, 23)
+TIMESTEPS = 1500
 
 
 def main():
     # initialize environment to all unknown
     env = [[0 for x in range(0, ENV_WIDTH)] for y in range(0, ENV_HEIGHT)]
+
     # add obstacles, box for now
     obstacleList = []
-    for i in range(0, 3):
+    for x in range(0,ENV_WIDTH):
+        for y in range(0, ENV_HEIGHT):
+            if x == 0 or y == 0 or y == ENV_HEIGHT-1 or x == ENV_WIDTH-1:
+                obstacleList.append((x,y))
+    for i in range(0, 3): # make a box
         for j in range(0, 3):
             xPos = int(ENV_WIDTH / 2 - 2 + i)
             yPos = int(ENV_HEIGHT / 2 - 2 + j)
             obstacleList.append((xPos, yPos))
+    for k in range(0, random.randint(3,10)):
+        boxSize = random.randint(3,9)
+        boxXPos = random.randint(1,ENV_WIDTH-boxSize)  # starting position of the box along the x-axis
+        boxYPos = random.randint(1, ENV_HEIGHT-boxSize)  # starting position of the box along the y-axis
+        for i in range(0, boxSize):
+            for j in range(0, boxSize):
+                xPos = boxXPos + i
+                yPos = boxYPos + j
+                obstacleList.append((xPos, yPos))
+                # can't make empty boxes
 
     # add robots, spread out a bit
     robotsList = []
     for n in range(0, NUM_ROBOTS):
-        robotsList.append(robot.Robot(1, n, ENV_WIDTH, ENV_HEIGHT))
+        robotsList.append(robot.Robot(2, 1+n, ENV_WIDTH, ENV_HEIGHT))
 
     # make frontierlist
     frontierlist = []
@@ -46,19 +57,18 @@ def main():
     for r in robotsList:
         r.setVisitedNodes(visitedlist, frontierlist)
 
-    #display(env, visitedlist, frontierlist, obstacleList, robotsList)
+    # display(env, visitedlist, frontierlist, obstacleList, robotsList)
 
 
-    # main loop, figure out how/when to terminate later
     population = []     # consists of moves for each robot
     previousutil = 0
     for r in robotsList:
-        previousutil += r.utility(obstacleList,robotsList,frontierlist)
+        previousutil += r.utility(obstacleList, robotsList, frontierlist, BASE_STATION)
 
-    for n in range (0, 15000):
-        #generate a population
+    for n in range(0, TIMESTEPS):
+        # generate a population
         population = []
-        for k in range (0, NUM_CONFIGS):
+        for k in range(0, NUM_CONFIGS):
             # deep copy the list
             config = copy.deepcopy(robotsList)
             for r in config:
@@ -68,46 +78,62 @@ def main():
         bestConfig = population[0]
         bestUtil = 0
         for r in population[0]:
-            bestUtil += r.utility(obstacleList,population[0],frontierlist)
+            bestUtil += r.utility(obstacleList, population[0], frontierlist, BASE_STATION)
 
-        for c in population: # list of [list of [robots] ]
+        for c in population:  # list of [list of [robots] ]
             utilval = 0
             for r in c:
-                utilval += r.utility(obstacleList, c, frontierlist)
+                utilval += r.utility(obstacleList, c, frontierlist, BASE_STATION)
             if utilval >= bestUtil:
                 bestUtil = utilval
                 bestConfig = c
-        #print("best is: ", bestUtil)
+        # print("best is: ", bestUtil)
 
         # move robots to new positions, update all the things
+        # safety first, hard rejects impossible actions that visit a nodes off the frontier
         safetylist = copy.deepcopy(robotsList)
+        safetyFrontList = copy.deepcopy(frontierlist)
+        safetyVisitedList = copy.deepcopy(visitedlist)
         robotsList = bestConfig
         for r in robotsList:
             r.setFrontierNodes(frontierlist, obstacleList, visitedlist, ENV_WIDTH, ENV_HEIGHT)
-            if (r.setVisitedNodes(visitedlist, frontierlist) == -1):
+            if r.setVisitedNodes(visitedlist, frontierlist) == -1:
                 robotsList = safetylist
+                frontierlist = safetyFrontList
+                visitedlist = safetyVisitedList
+
+        # send frame to gif machine
+        make_frame(env, visitedlist, frontierlist, obstacleList, robotsList, n)
 
         if len(frontierlist) == 0:
+            print("we finished the thingy")
             break
     finalutil = 0
     for r in robotsList:
-        finalutil += r.utility(obstacleList,robotsList,frontierlist)
+        finalutil += r.utility(obstacleList, robotsList, frontierlist, BASE_STATION)
         print(r.distToFront(frontierlist))
     print("sizeof visitedlist: ", len(visitedlist))
     print("finalutil: ", finalutil)
-    display(env, visitedlist, frontierlist, obstacleList, robotsList)
+    make_frame(env, visitedlist, frontierlist, obstacleList, robotsList, n, last=True)
+    frames = []
 
-
-
+    # make the gif
+    for t in range(0, n):
+        image = imageio.v2.imread(f'./gifpics/img_{t}.png')
+        frames.append(image)
+    imageio.mimsave(f'./{NUM_ROBOTS}-robot_{ENV_WIDTH}x{ENV_HEIGHT}_random_squares.gif',
+                    frames,
+                    loop=True,
+                    duration=60000/n) # limit gif length to 1 minute
+                    # total time = timesteps * duration
 
     # first set visited
 def display(env, visitedlist, frontierlist, obstacleList, robotsList):
     for x in range(0, ENV_WIDTH):
-        for y in range(0, ENV_HEIGHT):
-            if (x, y) in visitedlist:
-                env[x][y] = 1
-            else:
-                env[x][y] = 0
+        for y in range(0, ENV_HEIGHT+1):
+            env[x][y] = 0
+    for x, y in visitedlist:
+        env[x][y] = 1
     for x, y in frontierlist:
         env[x][y] = 3
     for x, y in obstacleList:
@@ -115,12 +141,14 @@ def display(env, visitedlist, frontierlist, obstacleList, robotsList):
     for r in robotsList:
         print(r.x, r.y, len(frontierlist))
         env[r.x][r.y] = 4
-    #  unknown: 0 = gray
-    #  visited: 1 = green
-    # obstacle: 2 = black
-    # frontier: 3 = yellow
-    #    robot: 4 = blue
-    colormap = colors.ListedColormap(["gray", "green", "black", "yellow", "blue"])
+    env[BASE_STATION[0]][BASE_STATION[1]] = 5
+    #  unknown: 0 = gray = 5
+    #  visited: 1 = green = 0
+    # obstacle: 2 = black = 1
+    # frontier: 3 = yellow = 2
+    #    robot: 4 = blue = 3
+    #     base: 5 = red = 4
+    colormap = colors.ListedColormap(["gray", "green", "black", "yellow", "blue", "red"])
     plt.figure(figsize=(5, 5))
     plt.imshow(env, cmap=colormap)
     plt.show()
@@ -132,44 +160,45 @@ def display(env, visitedlist, frontierlist, obstacleList, robotsList):
     plt.ylim(0, ENV_HEIGHT)
     plt.title('Multi-robot exploration')
 
+def make_frame(env, visitedlist, frontierlist, obstacleList, robotsList, time, last=False):
+    for x in range(0, ENV_WIDTH):
+        for y in range(0, ENV_HEIGHT):
+            env[x][y] = 0
+    for x, y in visitedlist:
+        env[x][y] = 1
+    for x, y in frontierlist:
+        env[x][y] = 3
+    for x, y in obstacleList:
+        env[x][y] = 2
+    for r in robotsList:
+        # print(r.x, r.y, len(frontierlist))
+        if (r.x >= ENV_WIDTH or r.y >= ENV_HEIGHT or r.x < 0 or r.y < 0):
+            print("fell off the table, find me at ",r.x, r.y)
+        else:
+            env[r.x][r.y] = 4
+    env[BASE_STATION[0]][BASE_STATION[1]] = 5
 
-# Press the green button in the gutter to run the script.
+    fig = plt.figure(figsize=(6, 6))
+
+    colormap = colors.ListedColormap(["gray", "green", "black", "yellow", "blue", "red"])
+    plt.imshow(env, cmap=colormap)
+    plt.grid(True, linewidth=.5)
+    plt.xlim(0, ENV_WIDTH)
+    plt.ylim(0, ENV_HEIGHT)
+    plt.title('Multi-robot exploration')
+
+    plt.savefig(f'./gifpics/img_{time}.png',
+                transparent=False,
+                facecolor='white'
+                )
+    if last:
+        plt.savefig(f'./lastframe_{NUM_ROBOTS}-bot_{ENV_WIDTH}x{ENV_HEIGHT}_{TIMESTEPS}-steps.png',
+                    transparent=False,
+                    facecolor='white'
+                    )
+    plt.clf()
+
+
 if __name__ == '__main__':
     main()
 
-    # See PyCharm help at https://www.jetbrains.com/help/pycharm/
-
-    # data = [[random.randint(a=0, b=1) for x in range(0, 8)],  # row 1
-    #         [random.randint(a=0, b=1) for x in range(0, 8)],  # row 2
-    #         [random.randint(a=0, b=1) for x in range(0, 8)],  # row 3
-    #         [random.randint(a=0, b=1) for x in range(0, 8)],  # row 4
-    #         [random.randint(a=0, b=1) for x in range(0, 8)],  # row 5
-    #         [random.randint(a=0, b=1) for x in range(0, 8)],  # row 6
-    #         [random.randint(a=0, b=1) for x in range(0, 8)],  # row 7
-    #         [random.randint(a=0, b=1) for x in range(0, 8)]]  # row 8
-    # env = [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]
