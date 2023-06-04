@@ -1,1 +1,0 @@
-# can be unknown, visited frontier obstacle
