@@ -1,7 +1,8 @@
 import random
 
-RANGE = 35
+RANGE = 50
 BASE_RANGE = RANGE # can be set different for testing or display purposes
+
 
 
 class Robot:
@@ -12,15 +13,15 @@ class Robot:
         self.wide = wide
         self.tall = tall
 
-    def setFrontierNodes(self, frontierlist, obstaclelist, visitedlist, wide, tall):
+    def setFrontierNodes(self, frontier_list, obstaclelist, visitedlist, wide, tall):
         for dx in range(-1, 2):  # because the second argument is exclusive  -_-
             for dy in range(-1, 2):  # which makes the code look dumb
                 newx = self.x + dx
                 newy = self.y + dy
                 if (newx >= 0) and (newy >= 0) and (newx < wide) and (newy < tall):
                     if (newx, newy) not in obstaclelist and (self.x, self.y) not in obstaclelist:
-                        if (newx, newy) not in frontierlist and (newx, newy) not in visitedlist:
-                            frontierlist.append((newx, newy))
+                        if (newx, newy) not in frontier_list and (newx, newy) not in visitedlist:
+                            frontier_list.append((newx, newy))
 
     def setVisitedNodes(self, visitedlist, frontierlist):
         x = self.x
